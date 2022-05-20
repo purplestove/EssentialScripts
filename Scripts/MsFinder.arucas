@@ -1,0 +1,363 @@
+import * from Minecraft;
+
+class CSVParser {
+    var file;
+    var separator;
+
+    var headers = ";";
+    var lines = [];
+
+
+    CSVParser(filePath, separator) {
+        this.separator = separator;
+        file = new File(filePath);
+        if (file.exists()) {
+            this.file = file;
+            this.parseFile();
+        } else {
+            print("§4ERROR: §fCouldn't open file : §a" + filePath);
+        }
+    }
+
+    // Run through file, set headers and lines
+    fun parseFile() {
+        if (this.file == null) return;
+
+        this.parseString(this.file.read());
+    }
+
+    // Run through string, set headers and lines
+    fun parseString(string) {
+        lines = string.split("\n");
+        headers = lines.remove(0).strip();
+        this.headers = headers.split(this.separator);
+
+        parsedLines = [];
+
+        foreach(line : lines) {
+            parsedLines.append(line.strip().split(this.separator));
+        }
+
+        this.lines = parsedLines;
+    }
+
+
+    fun toItemsLocationsMap() {
+        map = {};
+
+        foreach(mat : this.lines) {
+            // If coords aren't in csv, just use null
+            if (mat.get(0) != "") {
+                key = Material.of(mat.get(0).lowercase());
+                value = [];
+
+                if (len(mat) > 0) {
+                    for (i = 1; i < len(mat) ; i++) {
+                        xyz = mat.get(i).split(" ");
+                        value.append(new Pos(xyz.get(0).toNumber(), xyz.get(1).toNumber(), xyz.get(2).toNumber()));
+                    }
+                }
+
+                map.put(key, value);
+            }
+        }
+
+        return map;
+    }
+
+
+    fun writeItemsLocationsMapToCSV(ItemsLocationsMap) {
+        text = "Item,Location\n";
+
+        foreach(itemLocations : ItemsLocationsMap) {
+            if (ItemsLocationsMap.get(itemLocations) != null) {
+                locations = ItemsLocationsMap.get(itemLocations);
+                subtext = "" + itemLocations;
+                foreach (pos : locations) {
+                    subtext = subtext + "," + pos.getX() + " " + pos.getY() + " " + pos.getZ();
+                }
+
+                text = text + "" + subtext + "\n";
+            } else {
+                text = text + "" + itemLocations + ",\n";
+            }
+        }
+
+        this.file.write(text);
+        this.parseString(text);
+    }
+
+
+    fun getFile() {
+        return this.file;
+    }
+}
+
+
+class SingleBlockHighlighter {
+    var boxes = {};
+
+    fun clear() {
+        foreach (box : this.boxes.getValues()) {
+            box.stopRendering();
+        }
+        this.boxes.clear();
+    }
+
+    fun addPosition(boxPos) {
+        if (!this.boxes.getKeys().contains(boxPos)) {
+            box = new BoxShape(boxPos);
+            box.setOutlinePixelWidth(3);
+            box.setOutlineColour(0, 255, 0);
+            box.setOpacity(20);
+            box.setRenderThroughBlocks(true);
+            box.render();
+            this.boxes.put(boxPos, box);
+        }
+    }
+
+    fun getLocations() {
+        return this.boxes.getKeys();
+    }
+}
+
+
+parser = new CSVParser(File.getDirectory().getPath() + "/config/EssentialClient/Scripts/MsLayout.csv", ",");
+
+// Stop script if .csv is not loaded
+if (parser.getFile() == null) stop();
+
+itemsLocationsMap = parser.toItemsLocationsMap();
+
+
+client = MinecraftClient.getClient();
+player = Player.get();
+blockHighlighter = new SingleBlockHighlighter();
+
+
+// Highlight locations for {item}
+fun findItem(item) {
+    mat = Material.of(item.getId());
+    blockHighlighter.clear();
+
+    if (itemsLocationsMap.getKeys().contains(mat)) {
+        if (itemsLocationsMap.get(mat) != null) {
+            itemLocations = itemsLocationsMap.get(mat);
+
+            print("");
+            print("Here's a list of the locations for §2" + mat + " §f:");
+
+            for(i = 0; i < len(itemLocations); i++) {
+                locationString = "" + itemLocations.get(i).getX().floor() + ", " + itemLocations.get(i).getY().floor() + ", " + itemLocations.get(i).getZ().floor();
+                print("" + (i + 1) + ": §2" + mat + " §fstored at §a" + locationString);
+
+                blockHighlighter.addPosition(itemLocations.get(i));
+            }
+        } else {
+            print("");
+            print("§fCoordinates for §2" + mat + " §fnot set.");
+            player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+        }
+    } else {
+        print("");
+        print("§2" + mat + " §fnot in CSV file.");
+        player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+    }
+}
+
+
+// Set the LocationArray to {location} for {item}
+fun setLocationFor(item, location) {
+    mat = Material.of(item.getId());
+    itemsLocationsMap.put(mat, [location]);
+    parser.writeItemsLocationsMapToCSV(itemsLocationsMap);
+
+    print("");
+    print("§fCoordinates for §2" + mat + " §fsets to §a" + location + "§f.");
+}
+
+
+// Add {location} in the LocationArray for {item}
+fun addLocationFor(item, location) {
+    mat = Material.of(item.getId());
+    oldLocations = itemsLocationsMap.get(mat);
+
+    if (oldLocations == null) {
+        oldLocations = [];
+    } else {
+        if (oldLocations.contains(location)) {
+            print("");
+            print("§a" + location + " §falready set for §2" + mat + "§f.");
+            return;
+        }
+    }
+
+    oldLocations.append(location);
+
+    itemsLocationsMap.put(mat, oldLocations);
+    parser.writeItemsLocationsMapToCSV(itemsLocationsMap);
+
+    print("");
+    print("§fAdded §a" + location + " §ffor §2" + mat + "§f.");
+}
+
+
+// Remove {location} in the LocationsArray for {item}
+fun removeLocationFor(item, location) {
+    mat = Material.of(item.getId());
+    oldLocations = itemsLocationsMap.get(mat);
+
+    for (i = 0; i < len(oldLocations); i++) {
+        if (oldLocations.get(i) == location) {
+            oldLocations.remove(i);
+        }
+    }
+
+    itemsLocationsMap.put(mat, oldLocations);
+    parser.writeItemsLocationsMapToCSV(itemsLocationsMap);
+
+    print("");
+    print("§Removed §a" + location + " §ffor §2" + mat + "§f.");
+}
+
+/////////////////////////// Help ///////////////////////////
+// Map containing all the command + help message
+helpMap = {
+    "addLocationFor" : "§b/ms addLocationFor <item> <location> §f: Add a new location §2<location> §ffor §2<item>",
+    "clear" : "§b/ms clear §f: Hide all the highlighted locations",
+    "find" : "§b/ms find <item> §f: Highlights locations for §2<item>",
+    "findHolding" : "§b/ms findHolding §f: Highlights locations for item in hand",
+    "help" : "§b/ms help §f: The help command",
+    "removeLocationFor" : "§b/ms removeLocationFor <item> <location> §f: Remove a location §2<location> §ffor §2<item>",
+    "setLocationFor" : "§b/ms setLocationFor <item> <location> §f: Set the location §2<location> §ffor §2<item> §f(remove previous locations)"
+};
+
+// Print help for {command}
+fun printHelpFor(command) {
+    print("Help :");
+    if (helpMap.get(command) != null) {
+        print(helpMap.get(command));
+    } else {
+        foreach(command : helpMap) {
+            print(helpMap.get(command));
+        }
+    }
+}
+
+
+/////////////////////////// Register commands ///////////////////////////
+findItemCommands = {
+    "name" : "ms",
+    "subcommands" : {
+        "find" : {
+            "<item>" : {
+                "" : fun(item) {
+                    findItem(item);
+                }
+            }
+        },
+        "findHolding" : {
+            "" : fun() {
+                item = player.getHeldItem();
+                if (item.getId() != "air")
+                    findItem(item);
+            }
+        },
+        "setLocationFor" : {
+            "<item> <coordinates>" : {
+                "": fun(item, coordinates){
+                    setLocationFor(item, coordinates);
+                }
+            }
+        },
+        "addLocationFor" : {
+            "<item> <coordinates>" : {
+                "" : fun(item, coordinates){
+                    addLocationFor(item, coordinates);
+                }
+            }
+        },
+        "removeLocationFor" : {
+            "<itemInMap> <location>" : {
+                "" : fun(item, location) {
+                    removeLocationFor(item, location);
+                }
+            }
+        },
+        "clear" : {
+            "" : fun() {
+                blockHighlighter.clear();
+            }
+        },
+        "help" : {
+            "" : fun() {
+                printHelpFor("");
+            },
+            "<command>" : {
+                "" : fun(command) {
+                    printHelpFor(command);
+                }
+            }
+        }
+    },
+    "arguments" : {
+        "item" : {
+            "type" : "ItemStack"
+        },
+        "coordinates" : {
+            "type" : "BlockPos"
+        },
+        "itemInMap" : {
+            "type" : "ItemStack",
+            "suggester" : fun(args...) {
+                return itemsLocationsMap.getKeys();
+            }
+        },
+        "location" : {
+            "type" : "BlockPos",
+            "suggester" : fun(args...) {
+                // Technically instead of args... you can do
+                // just item, but this will pass all previous
+                // arguments in, so arbitrary parameters is safer
+                item = Material.of(args.get(0).getId());
+                suggestions = [];
+                foreach (location : itemsLocationsMap.get(item)) {
+                    suggestions.append("" + location.getX().floor() + " " + location.getY().floor() + " " + location.getZ().floor());
+                }
+                return suggestions;
+            }
+        },
+        "command" : {
+            "type" : "GreedyString",
+            "suggester" : fun(args...) {
+                return helpMap.getKeys();
+            }
+        }
+    }
+};
+
+client.addCommand(CommandBuilder.fromMap(findItemCommands));
+
+
+/////////////////////////// Keybinds ///////////////////////////
+findHoldingKey = new KeyBind("Find item in hand");
+
+findHoldingKey.setCallback(fun() {
+    item = player.getHeldItem();
+    if (item.getId() != "air")
+        findItem(item);
+});
+
+/////////////////////////// Clear highlights when opening the chest ///////////////////////////
+onUseEvent = new GameEvent("onOpenScreen", fun(screen) {
+    if (screen.getName() == "GenericContainer") {
+        lookingAt = player.getLookingAtBlock();
+        if (blockHighlighter.getLocations().contains(lookingAt.getPos())) {
+            blockHighlighter.clear();
+        }
+    }
+}, true);
+
+onUseEvent.register();
+
+Thread.freeze();
