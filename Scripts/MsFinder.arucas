@@ -1,4 +1,5 @@
 import * from Minecraft;
+import Network from util.Network;
 
 class CSVParser {
     var file;
@@ -121,6 +122,9 @@ class SingleBlockHighlighter {
     }
 }
 
+client = MinecraftClient.getClient();
+player = Player.get();
+blockHighlighter = new SingleBlockHighlighter();
 
 parser = new CSVParser(File.getDirectory().getPath() + "/config/EssentialClient/Scripts/MsLayout.csv", ",");
 
@@ -128,11 +132,6 @@ parser = new CSVParser(File.getDirectory().getPath() + "/config/EssentialClient/
 if (parser.getFile() == null) stop();
 
 itemsLocationsMap = parser.toItemsLocationsMap();
-
-
-client = MinecraftClient.getClient();
-player = Player.get();
-blockHighlighter = new SingleBlockHighlighter();
 
 
 // Highlight locations for {item}
@@ -156,12 +155,16 @@ fun findItem(item) {
         } else {
             print("");
             print("§fCoordinates for §2" + mat + " §fnot set.");
-            player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+            if (client.isInSinglePlayer()) {
+                player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+            }
         }
     } else {
         print("");
         print("§2" + mat + " §fnot in CSV file.");
-        player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+        if (client.isInSinglePlayer()) {
+            player.message(Text.of("Use §b/ms set <item> <coordinates> §fto set coordinates.").withClickEvent("suggest_command", "/ms set " + mat.getId() + " "));
+        }
     }
 }
 
@@ -220,14 +223,18 @@ fun removeLocationFor(item, location) {
     print("§Removed §a" + location + " §ffor §2" + mat + "§f.");
 }
 
+
 /////////////////////////// Help ///////////////////////////
 // Map containing all the command + help message
 helpMap = {
-    "addLocationFor" : "§b/ms addLocationFor <item> <location> §f: Add a new location §2<location> §ffor §2<item>",
     "clear" : "§b/ms clear §f: Hide all the highlighted locations",
     "find" : "§b/ms find <item> §f: Highlights locations for §2<item>",
     "findHolding" : "§b/ms findHolding §f: Highlights locations for item in hand",
-    "help" : "§b/ms help §f: The help command",
+    "help" : "§b/ms help §f: The help command"
+};
+
+singlePLayerHelpMap = {
+    "addLocationFor" : "§b/ms addLocationFor <item> <location> §f: Add a new location §2<location> §ffor §2<item>",
     "removeLocationFor" : "§b/ms removeLocationFor <item> <location> §f: Remove a location §2<location> §ffor §2<item>",
     "setLocationFor" : "§b/ms setLocationFor <item> <location> §f: Set the location §2<location> §ffor §2<item> §f(remove previous locations)"
 };
@@ -235,17 +242,29 @@ helpMap = {
 // Print help for {command}
 fun printHelpFor(command) {
     print("Help :");
-    if (helpMap.get(command) != null) {
+
+    allHelpMap = helpMap.copy();
+    allHelpMap.putAll(singlePLayerHelpMap);
+
+    if (allHelpMap.get(command) != null) {
         print(helpMap.get(command));
     } else {
         foreach(command : helpMap) {
             print(helpMap.get(command));
+        }
+        if (client.isInSinglePlayer()) {
+            print("\nSinglePLayer only commands :");
+            foreach(command : singlePLayerHelpMap) {
+                print(singlePLayerHelpMap.get(command));
+            }
         }
     }
 }
 
 
 /////////////////////////// Register commands ///////////////////////////
+
+// Commands used to find an,d highlight an item + help command
 findItemCommands = {
     "name" : "ms",
     "subcommands" : {
@@ -263,6 +282,39 @@ findItemCommands = {
                     findItem(item);
             }
         },
+        "clear" : {
+            "" : fun() {
+                blockHighlighter.clear();
+            }
+        },
+        "help" : {
+            "" : fun() {
+                printHelpFor("");
+            },
+            "<command>" : {
+                "" : fun(command) {
+                    printHelpFor(command);
+                }
+            }
+        }
+    },
+    "arguments" : {
+        "item" : {
+            "type" : "ItemStack"
+        },
+        "command" : {
+            "type" : "GreedyString",
+            "suggester" : fun(args...) {
+                return helpMap.getKeys();
+            }
+        }
+    }
+};
+
+// Commands used to edit/add/remove coordinates for an items (edit csv file as well)
+editItemPosCommands = {
+"name" : "ms",
+    "subcommands" : {
         "setLocationFor" : {
             "<item> <coordinates>" : {
                 "": fun(item, coordinates){
@@ -281,21 +333,6 @@ findItemCommands = {
             "<itemInMap> <location>" : {
                 "" : fun(item, location) {
                     removeLocationFor(item, location);
-                }
-            }
-        },
-        "clear" : {
-            "" : fun() {
-                blockHighlighter.clear();
-            }
-        },
-        "help" : {
-            "" : fun() {
-                printHelpFor("");
-            },
-            "<command>" : {
-                "" : fun(command) {
-                    printHelpFor(command);
                 }
             }
         }
@@ -326,17 +363,17 @@ findItemCommands = {
                 }
                 return suggestions;
             }
-        },
-        "command" : {
-            "type" : "GreedyString",
-            "suggester" : fun(args...) {
-                return helpMap.getKeys();
-            }
         }
     }
 };
 
 client.addCommand(CommandBuilder.fromMap(findItemCommands));
+
+// If player is in singlePlayer allow to use commands that modify csv
+if (client.isInSinglePlayer()) {
+    client.addCommand(CommandBuilder.fromMap(editItemPosCommands));
+}
+
 
 
 /////////////////////////// Keybinds ///////////////////////////
@@ -347,6 +384,44 @@ findHoldingKey.setCallback(fun() {
     if (item.getId() != "air")
         findItem(item);
 });
+
+
+/////////////////////////// Configs ///////////////////////////
+configHandler = new ConfigHandler("MsFinderConfigs", false);
+
+configs = Config.fromListOfMap(
+    [
+        {
+            "type": "string",
+            "name": "Csv download url",
+            "description": "A downladable csv url, typicaly a spreadsheet with '?format=csv' in the url",
+            "default_value": "",
+            "max_length": 128
+        },
+        {
+            "type": "boolean",
+            "name": "Auto-Update csv",
+            "description": "If true, will download the csv everytime you log on a server in the <server list>",
+            "default_value": true
+        },
+        {
+            "type": "list",
+            "name": "Auto-Update server list",
+            "description": "A list of server address on which you want to auto update the csv",
+            "default_value": [],
+            "max_length": 32
+        }
+    ]
+);
+
+configHandler.addConfigs(configs);
+configHandler.read();
+
+kb = new KeyBind("MsFinder config screen");
+kb.setCallback(fun () {
+    Player.get().openScreen(configHandler.createScreen(Text.of("MsFinder Configs")));
+});
+
 
 /////////////////////////// Clear highlights when opening the chest ///////////////////////////
 onUseEvent = new GameEvent("onOpenScreen", fun(screen) {
@@ -359,5 +434,40 @@ onUseEvent = new GameEvent("onOpenScreen", fun(screen) {
 }, true);
 
 onUseEvent.register();
+
+
+/////////////////////////// csv update ///////////////////////////
+
+// Download csv from the google sheet as csv and replace old one
+fun updateCSV(url) {
+    try {
+        // Check if url is somewhat valid
+        if (Network.requestUrl(url).instanceOf("String")) {
+            return Network.downloadFile(url, new File(File.getDirectory().getPath() + "/config/EssentialClient/Scripts/MsLayout.csv"));
+        }
+    } catch(error) {
+        return false;
+    }
+}
+
+/**
+ * If player in in multiplayerwith autoUpdate set to true
+ *      -> If player is connected to a server in serverList
+ *              -> Try to download CSV
+ */
+if (!client.isInSinglePlayer() && configHandler.getConfig("Auto-Update csv").getValue()) {
+    currentIp = client.getServerIp();
+    if (configHandler.getConfig("Auto-Update server list").getValue().contains(currentIp)) {
+        csvUrl = configHandler.getConfig("Csv download url").getValue();
+        if (updateCSV(csvUrl)) {
+            print("Csv up to date");
+            parser = new CSVParser(File.getDirectory().getPath() + "/config/EssentialClient/Scripts/MsLayout.csv", ",");
+        } else {
+            print("Can't reach csv download url");
+        }
+    }
+}
+
+
 
 Thread.freeze();
