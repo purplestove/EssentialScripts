@@ -3,6 +3,9 @@ yes
 
 
 # MsFinder V2
+⚠️Will make a better version someday, using packet to talk with scarpet and analyse what's in chests, instead of using any sort of database to save items locations⚠️
+
+
 The point is to highlight location/chest containing a wanted item.
 Those itemsLocations are stored in `MsLayout.csv`\
 In _SinglePLayer_ you are able to use commands that edit the csv file such as `addLocationFor` to add a location for an item or `removeLocationFor` to remove a location for an item.\
